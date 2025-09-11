@@ -1,106 +1,100 @@
 import { fetchEventSource, type FetchEventSourceInit } from "./fetch";
 import type { EventSourceMessage } from "./parse";
 
-export class EventSourceClient {
-  private url: string;
-  private options: FetchEventSourceInit;
-  private controller: AbortController | null = null;
-  private connectingPromise: Promise<void> | null = null;
-  private listeners: Record<string, Set<(payload: any) => void>> = {};
-  private lastEventId?: string;
+export interface EventSourceClientOptions extends Omit<FetchEventSourceInit, 'onopen' | 'onmessage' | 'onclose' | 'onerror'> {}
 
-  constructor(url: string, options: FetchEventSourceInit) {
+type EventHandler = (data: any) => void;
+
+export class EventSourceClient {
+  private controller: AbortController | null = null;
+  private connectPromise: Promise<void> | null = null;
+  private listeners: Record<string, Set<EventHandler>> = {};
+  private isConnected = false;
+  private url: string;
+  private options: EventSourceClientOptions;
+
+  constructor(url: string, options: EventSourceClientOptions = {}) {
     this.url = url;
     this.options = options;
   }
 
-  public on(event: string, handler: (payload: any) => void) {
-    if (!this.listeners[event]) this.listeners[event] = new Set();
-    this.listeners[event].add(handler);
+  on(event: string, handler: EventHandler): () => void {
+    (this.listeners[event] ??= new Set()).add(handler);
     return () => this.off(event, handler);
   }
 
-  public off(event: string, handler?: (payload: any) => void) {
-    const set = this.listeners[event];
-    if (!set) return;
-    if (handler) set.delete(handler);
-    else set.clear();
+  off(event: string, handler?: EventHandler): void {
+    const listeners = this.listeners[event];
+    if (!listeners) return;
+    handler ? listeners.delete(handler) : listeners.clear();
   }
 
-  public once(event: string, handler: (payload: any) => void) {
-    const off = this.on(event, (payload) => {
-      off();
-      handler(payload);
+  once(event: string, handler: EventHandler): () => void {
+    const onceHandler = (data: any) => {
+      handler(data);
+      this.off(event, onceHandler);
+    };
+    return this.on(event, onceHandler);
+  }
+
+  private emit(event: string, data?: any): void {
+    this.listeners[event]?.forEach(handler => {
+      try {
+        handler(data);
+      } catch (error) {
+        console.error(`Error in event handler for '${event}':`, error);
+      }
     });
-    return off;
   }
 
-  private emit(event: string, payload?: any) {
-    const set = this.listeners[event];
-    if (!set) return;
-    for (const fn of set) {
-      try { fn(payload); } catch { /* 忽略单个错误 */ }
-    }
-  }
-
-  public async connect() {
-    if (this.connectingPromise) return this.connectingPromise;
+  async connect(): Promise<void> {
+    if (this.connectPromise) return this.connectPromise;
+    if (this.isConnected) return;
 
     this.controller = new AbortController();
-
-    const { onopen, onmessage, onclose, onerror, ...rest } = this.options;
-
-    const handleOpen = async (res: Response) => {
-      await onopen?.(res);
-      this.emit("open", res);
-    };
-
-    const handleMessage = (msg: EventSourceMessage) => {
-      this.lastEventId = msg.id || this.lastEventId;
-      onmessage?.(msg);
-      this.emit("message", msg);
-      if (msg.event) this.emit(msg.event, msg);
-    };
-
-    const handleError = (err: any) => {
-      onerror?.(err);
-      this.emit("error", err);
-      this.disconnect(); // 自动关闭
-    };
-
-    const handleClose = () => {
-      onclose?.();
-      this.emit("close");
-      this.controller = null;
-      this.connectingPromise = null;
-    };
-
-    this.connectingPromise = fetchEventSource(this.url, {
-      ...rest,
+    
+    return this.connectPromise = fetchEventSource(this.url, {
+      ...this.options,
       signal: this.controller.signal,
-      onopen: handleOpen,
-      onmessage: handleMessage,
-      onerror: handleError,
-      onclose: handleClose,
-      headers: {
-        ...rest.headers,
-        ...(this.lastEventId ? { "last-event-id": this.lastEventId } : {}),
+      onopen: async (response: Response) => {
+        this.isConnected = true;
+        this.emit('open', response);
       },
+      onmessage: (message: EventSourceMessage) => {
+        this.emit('message', message);
+        if (message.event) this.emit(message.event, message);
+      },
+      onclose: () => {
+        this.isConnected = false;
+        this.controller = null;
+        this.connectPromise = null;
+        this.emit('close');
+      },
+      onerror: (error: any) => {
+        this.emit('error', error);
+        this.disconnect();
+      }
     });
-
-    return this.connectingPromise;
   }
 
-  public disconnect() {
-    if (this.controller) {
-      this.controller.abort();
-      this.controller = null;
-      this.emit("close");
-    }
-    this.connectingPromise = null;
+  disconnect(): void {
+    this.controller?.abort();
+    this.controller = null;
+    this.isConnected = false;
+    this.connectPromise = null;
+    this.emit('close');
   }
 
-  public get connected() {
-    return !!this.controller;
+  get connected(): boolean {
+    return this.isConnected;
+  }
+
+  removeAllListeners(): void {
+    this.listeners = {};
+  }
+
+  destroy(): void {
+    this.disconnect();
+    this.removeAllListeners();
   }
 }
