@@ -100,7 +100,7 @@ export class EventSourceClient {
   /** 建立 SSE 连接 */
   async connect(): Promise<void> {
     if (this.connectPromise) return this.connectPromise;
-    if (this.connected || this.isConnecting) return;
+    if (this.connected || this.isConnecting) return Promise.resolve();
   
     this.changeState("connecting");
     this.controller = new AbortController();
