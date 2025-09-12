@@ -159,19 +159,18 @@ export function fetchEventSource(
         resolve();
       } catch (err) {
         if (!curRequestController.signal.aborted) {
-          // if we haven't aborted the request ourselves:
-          // try {
-          // check if we need to retry:
-          // const interval: any = onerror?.(err) ?? retryInterval;
-          // window.clearTimeout(retryTimer);
-          // retryTimer = window.setTimeout(create, interval);
-          // } catch (innerErr) {
-          // we should not retry anymore:
+          // 调用错误回调
+          try {
+            onerror?.(err);
+          } catch (innerErr) {
+            // 如果错误处理器也出错，停止操作
+            dispose();
+            reject(innerErr);
+            return;
+          }
           dispose();
-          reject(err);
-          // reject(innerErr);
-          // }
         }
+        reject(err);
       }
     }
 

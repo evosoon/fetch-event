@@ -29,7 +29,7 @@ app.get("/sse", (req, res) => {
       clearInterval(timer);
       res.end();
     }
-  }, 2000);
+  }, 1500);
 
   // 断开连接时清理
   req.on("close", () => {
