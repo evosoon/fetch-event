@@ -6,13 +6,13 @@ export type StreamJob = {
 
 export class StreamQueue {
   private queue: StreamJob[] = [];
-  private current: StreamJob | null = null;
-  private offset = 0;
-  private acc = "";
+  private currentJob: StreamJob | null = null;
+  private currentPosition = 0;
+  private currentText = "";
   private timer: ReturnType<typeof setTimeout> | null = null;
   private chunkSize: number;
   private interval: number;
-  private paused = false;
+  private isPaused = false;
 
   constructor(opts?: { chunkSize?: number; interval?: number }) {
     this.chunkSize = opts?.chunkSize ?? 3;
@@ -26,101 +26,118 @@ export class StreamQueue {
   ) {
     const job: StreamJob = { text, onUpdate, signal };
     this.queue.push(job);
-    this.kick();
-    return () => this.cancel(job);
+    this.startProcessing();
+    return () => this.cancelJob(job);
   }
 
   setSpeed(opts: { chunkSize?: number; interval?: number }) {
-    if (opts.chunkSize != null)
+    if (opts.chunkSize != null) {
       this.chunkSize = Math.max(1, Math.floor(opts.chunkSize));
-    if (opts.interval != null)
+    }
+    if (opts.interval != null) {
       this.interval = Math.max(0, Math.floor(opts.interval));
+    }
   }
 
   pause() {
-    this.paused = true;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.isPaused = true;
+    this.stopTimer();
   }
 
   resume() {
-    if (!this.paused) return;
-    this.paused = false;
-    this.kick();
+    if (!this.isPaused) return;
+    this.isPaused = false;
+    this.startProcessing();
   }
 
-  cancel(job?: StreamJob) {
-    if (job) {
-      if (this.current === job) {
-        this.finishCurrent(true);
-      } else {
-        this.queue = this.queue.filter((j) => j !== job);
-      }
-      return;
-    }
+  cancel() {
     this.queue = [];
-    this.finishCurrent(true);
+    this.resetCurrentJob();
   }
 
-  private kick() {
-    if (this.timer || this.paused) return;
-    if (!this.current) {
-      this.current = this.queue.shift() || null;
-      this.offset = 0;
-      this.acc = "";
-      if (!this.current) return;
+  private cancelJob(job: StreamJob) {
+    if (this.currentJob === job) {
+      this.resetCurrentJob();
+    } else {
+      this.queue = this.queue.filter(j => j !== job);
     }
-    this.schedule();
   }
 
-  private schedule() {
+  private startProcessing() {
+    if (this.timer || this.isPaused) return;
+    
+    if (!this.currentJob) {
+      this.loadNextJob();
+      if (!this.currentJob) return;
+    }
+    
+    this.scheduleNextTick();
+  }
+
+  private loadNextJob() {
+    this.currentJob = this.queue.shift() || null;
+    this.currentPosition = 0;
+    this.currentText = "";
+  }
+
+  private scheduleNextTick() {
     if (this.timer) return;
+    
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.tick();
+      this.processCurrentJob();
     }, this.interval);
   }
 
-  private tick() {
-    const job = this.current;
-    if (!job) {
-      this.kick();
+  private processCurrentJob() {
+    if (!this.currentJob) {
+      this.startProcessing();
       return;
     }
 
-    if (job.signal?.aborted) {
-      this.finishCurrent(true);
+    if (this.currentJob.signal?.aborted) {
+      this.resetCurrentJob();
       return;
     }
 
-    const end = Math.min(job.text.length, this.offset + this.chunkSize);
-    const chunk = job.text.slice(this.offset, end);
-    this.offset = end;
-    this.acc += chunk;
-
+    // 计算这次要添加的文本块
+    const endPosition = Math.min(
+      this.currentJob.text.length, 
+      this.currentPosition + this.chunkSize
+    );
+    const chunk = this.currentJob.text.slice(this.currentPosition, endPosition);
+    
+    // 更新状态
+    this.currentPosition = endPosition;
+    this.currentText += chunk;
+    
+    // 通知更新
+    const isComplete = this.currentPosition >= this.currentJob.text.length;
     try {
-      job.onUpdate(this.acc, this.offset >= job.text.length);
+      this.currentJob.onUpdate(this.currentText, isComplete);
     } catch (e) {
       console.error("[StreamQueue] onUpdate error", e);
     }
 
-    if (this.offset >= job.text.length) {
-      this.finishCurrent(false);
+    // 处理完成或继续
+    if (isComplete) {
+      this.resetCurrentJob();
     }
-
-    this.kick();
+    
+    this.startProcessing();
   }
 
-  private finishCurrent(_cancelled: boolean) {
-    this.current = null;
-    this.offset = 0;
-    this.acc = "";
+  private resetCurrentJob() {
+    this.currentJob = null;
+    this.currentPosition = 0;
+    this.currentText = "";
+    this.stopTimer();
+  }
+
+  private stopTimer() {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
   }
 }
-
