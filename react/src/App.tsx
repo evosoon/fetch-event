@@ -55,7 +55,7 @@ function App() {
         setMessages(prev => {
           if (idx < 0 || idx >= prev.length) return prev;
           const next = [...prev];
-          next[idx] = fullText;
+          next[idx] = next[idx]+delta;
           return next;
         });
       });
@@ -145,10 +145,10 @@ function App() {
       >
         <h3>Messages {messages.length}</h3>
         {messages.map((item, index) => (
-          <div key={index} style={{ 
-            padding: '5px', 
-            margin: '5px 0', 
-            borderRadius: '4px', 
+          <div key={index} className="message-item" style={{
+            padding: '8px 12px',
+            margin: '4px 0',
+            borderRadius: '4px',
             backgroundColor: '#f9f9f9', 
             border: '1px solid #eee'
           }}>
