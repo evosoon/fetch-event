@@ -47,14 +47,15 @@ function App() {
     if (typeof payload === 'string') {
       let idx = -1;
       setMessages(prev => {
-        idx = prev.length; // 以最新的 prev 计算插入位置，避免合并
+        idx = prev.length;
         return [...prev, ''];
       });
-      streamerRef.current?.enqueue(payload, (partial) => {
+      
+      streamerRef.current?.enqueue(payload, (delta, fullText, done) => {
         setMessages(prev => {
-          if (idx < 0 || idx >= prev.length) return prev; // 被清空/越界等
-          const next = prev.slice();
-          next[idx] = partial;
+          if (idx < 0 || idx >= prev.length) return prev;
+          const next = [...prev];
+          next[idx] = fullText;
           return next;
         });
       });

@@ -1,6 +1,6 @@
 export type StreamJob = {
   text: string;
-  onUpdate: (partial: string, done: boolean) => void;
+  onUpdate: (delta: string, fullText: string, done: boolean) => void;
   signal?: AbortSignal;
 };
 
@@ -21,7 +21,7 @@ export class StreamQueue {
 
   enqueue(
     text: string,
-    onUpdate: (partial: string, done: boolean) => void,
+    onUpdate: (delta: string, fullText: string, done: boolean) => void,
     signal?: AbortSignal
   ) {
     const job: StreamJob = { text, onUpdate, signal };
@@ -65,12 +65,12 @@ export class StreamQueue {
 
   private startProcessing() {
     if (this.timer || this.isPaused) return;
-    
+
     if (!this.currentJob) {
       this.loadNextJob();
       if (!this.currentJob) return;
     }
-    
+
     this.scheduleNextTick();
   }
 
@@ -82,7 +82,7 @@ export class StreamQueue {
 
   private scheduleNextTick() {
     if (this.timer) return;
-    
+
     this.timer = setTimeout(() => {
       this.timer = null;
       this.processCurrentJob();
@@ -100,30 +100,27 @@ export class StreamQueue {
       return;
     }
 
-    // 计算这次要添加的文本块
     const endPosition = Math.min(
-      this.currentJob.text.length, 
+      this.currentJob.text.length,
       this.currentPosition + this.chunkSize
     );
     const chunk = this.currentJob.text.slice(this.currentPosition, endPosition);
-    
-    // 更新状态
+
     this.currentPosition = endPosition;
     this.currentText += chunk;
-    
-    // 通知更新
+
     const isComplete = this.currentPosition >= this.currentJob.text.length;
+
     try {
-      this.currentJob.onUpdate(this.currentText, isComplete);
+      this.currentJob.onUpdate(chunk, this.currentText, isComplete);
     } catch (e) {
       console.error("[StreamQueue] onUpdate error", e);
     }
 
-    // 处理完成或继续
     if (isComplete) {
       this.resetCurrentJob();
     }
-    
+
     this.startProcessing();
   }
 
