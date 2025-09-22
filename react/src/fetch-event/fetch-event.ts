@@ -164,6 +164,11 @@ export class EventSourceClient {
     return this.stateInternal === "connecting";
   }
 
+  /** 获取当前的 AbortSignal */
+  get signal(): AbortSignal | undefined {
+    return this.controller?.signal;
+  }
+
   /** 移除所有监听器 */
   removeAllListeners() {
     this.listeners = {};

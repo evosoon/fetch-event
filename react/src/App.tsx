@@ -1,15 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import './App.css';
 import { EventSourceClient } from './fetch-event/fetch-event';
-import { StreamQueue } from './utils/streamer';
+import { useStream } from './utils/useStreamQueue';
 
 function App() {
   const [messages, setMessages] = useState<(string | object)[]>([]);
   const messagesRef = useRef<(string | object)[]>(messages);
   const clientRef = useRef<EventSourceClient | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const streamerRef = useRef<StreamQueue | null>(null);
-  const [chunkSize, setChunkSize] = useState<number>(3);
+  const { enqueue, cancel } = useStream();
 
   // 自动滚动到底部
   useEffect(() => {
@@ -23,19 +22,7 @@ function App() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // 初始化/释放 StreamQueue
-  useEffect(() => {
-    streamerRef.current = new StreamQueue({ chunkSize, interval: 30 });
-    return () => {
-      streamerRef.current?.cancel();
-      streamerRef.current = null;
-    };
-  }, []);
-
-  // 实时调节速度
-  useEffect(() => {
-    streamerRef.current?.setSpeed({ chunkSize });
-  }, [chunkSize]);
+  // StreamQueue lifecycle handled by hook
 
   const handleOpen = useCallback(() => {
     console.log('Connected to SSE');
@@ -51,14 +38,14 @@ function App() {
         return [...prev, ''];
       });
       
-      streamerRef.current?.enqueue(payload, (delta, fullText, done) => {
+      enqueue(payload, (delta, fullText, done) => {
         setMessages(prev => {
           if (idx < 0 || idx >= prev.length) return prev;
           const next = [...prev];
           next[idx] = next[idx]+delta;
           return next;
         });
-      });
+      }, clientRef.current?.signal ?? undefined);
     } else {
       setMessages(prev => [...prev, payload]);
     }
@@ -109,12 +96,10 @@ function App() {
       clientRef.current.disconnect();
       clientRef.current = null;
     }
-    streamerRef.current?.cancel();
   }, []);
 
   const clearMessages = () => {
     setMessages([]);
-    streamerRef.current?.cancel();
   };
 
   return (
@@ -124,20 +109,6 @@ function App() {
         <button onClick={connect}>Connect</button>
         <button onClick={disconnect} style={{ marginLeft: '10px' }}>Disconnect</button>
         <button onClick={clearMessages} style={{ marginLeft: '10px' }}>Clear</button>
-        <div style={{ marginTop: '10px' }}>
-          <label>
-            Speed (chars/tick): {chunkSize}
-            <input
-              type="range"
-              min={1}
-              max={20}
-              step={1}
-              value={chunkSize}
-              onChange={(e) => setChunkSize(Number(e.target.value))}
-              style={{ width: '180px', display: 'block' }}
-            />
-          </label>
-        </div>
       </div>
       <div 
         ref={containerRef} 

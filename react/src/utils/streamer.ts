@@ -30,15 +30,6 @@ export class StreamQueue {
     return () => this.cancelJob(job);
   }
 
-  setSpeed(opts: { chunkSize?: number; interval?: number }) {
-    if (opts.chunkSize != null) {
-      this.chunkSize = Math.max(1, Math.floor(opts.chunkSize));
-    }
-    if (opts.interval != null) {
-      this.interval = Math.max(0, Math.floor(opts.interval));
-    }
-  }
-
   pause() {
     this.isPaused = true;
     this.stopTimer();
